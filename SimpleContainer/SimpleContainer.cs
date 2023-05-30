@@ -1,80 +1,85 @@
 ﻿using System;
+using System.Reflection;
+using System.Collections.Generic;
 
-namespace SimpleContainer;
-
-public abstract class IDependency {
-	protected IDependency next;
-	public abstract T Resolve<T>() where T : new() ;
-	public abstract IDependency UnRegister<T>();
-}
-
-public class DirectDependency<T> : IDependency {
-	public DirectDependency(IDependency next) {
-		base.next = next;
-	}
-   	public override U Resolve<U>() {
-		if (typeof(U).Equals(typeof(T))) {
-			return new U();
-		} else {
-			return next.Resolve<U>();
-		}
-	}
-
-   	public override IDependency UnRegister<U>() {
-		if (typeof(U).Equals(typeof(T))) {
-			return next;
-		} else {
-			next = next.UnRegister<U>();
-			return this;
-		}
-	}
-}
-
-public class InDirectDepencency<From, To> : IDependency {
-	public InDirectDependency(IDependency next) {
-		base.next = next;
-	}
-   	public override U Resolve<U>() where U : new() {
-		if (U.Equals(T)) {
-			return new U();
-		} else {
-			return next.Resolve<U>();
-		}
-	}
-};
-
-public class SingletonDependency<T> : IDependency {
-
-};
-
+namespace ContainerNamespace {
 public class NotRegisteredDependency : Exception { }
 
-public class NotFoundDependency : IDependency {
-	public NotFoundDependency() {
-		base.next = null;
-	}
-	public override T Resolve<T>() {
-		throw new NotRegisteredDependency();
-	}
-};
-
-
-
-
-
-public class SimpleContainer
+public class Container
 {
-	private IDependency dependencyHead = new NotFoundDependency();
+	private Dictionary<Type, Type> dependencyMap;
+	private HashSet<Type> singletonSet;
+	private Dictionary<Type, object> instanceMapper;
+
+	public Container() {
+		this.dependencyMap = new Dictionary<Type, Type>();
+		this.singletonSet = new HashSet<Type>();
+		this.instanceMapper = new Dictionary<Type, object>();
+	}
 
 	public void RegisterType<T>( bool Singleton ) where T : class {
-
+		Type t = typeof(T);
+		RegisterType(t, t, Singleton);
 	}
 
 	public void RegisterType<From, To>( bool Singleton ) where To : From {
+		Type from = typeof(From);
+		Type to = typeof(To);
+		RegisterType(from, to, Singleton);
+	}
 
+	private object Create(Type t) {
+			ConstructorInfo? constructor =
+				t.GetConstructor(
+						BindingFlags.Public,
+						System.Type.DefaultBinder,
+						CallingConventions.Any,
+						new Type[0],
+						null);
+			if(constructor == null) {
+				Console.WriteLine("constructor of {} is null", t.Name);
+			}
+			object result = constructor?.Invoke(null);
+			if(result == null) {
+				Console.WriteLine("result of Create is null");
+			}
+			return result;
+	}
+
+	private void RegisterType(Type from, Type to, bool Singleton) {
+		dependencyMap.Add(from, to);
+		if (Singleton) {
+			singletonSet.Add(from);
+		} else {
+			singletonSet.Remove(from);
+			instanceMapper.Remove(from);
+		}
 	}
 
 	public T Resolve<T>() {
-		return dependencyHead.Resolve<T>();
+		Type t = typeof(T);
+		if(singletonSet.Contains(t)) {
+			if (!instanceMapper.ContainsKey(t)) {
+				instanceMapper.Add(t, Create(dependencyMap.GetValueOrDefault(t)));
+			}
+			return (T)instanceMapper.GetValueOrDefault(t, null);
+		} else {
+			return (T)Create(dependencyMap.GetValueOrDefault(t));
+		}
 	}
+}
+
+public class Program {
+	interface IFoo {}
+	class Foo : IFoo {};
+    class OtherFoo : IFoo {};
+
+	public static void Main(string[] args) {
+		Container c = new Container();
+		c.RegisterType<Foo>( true );
+		Foo f1 = c.Resolve<Foo>();
+		Foo f2 = c.Resolve<Foo>();
+        Console.WriteLine("{}", f1.Equals(f2));
+	}
+}
 }
