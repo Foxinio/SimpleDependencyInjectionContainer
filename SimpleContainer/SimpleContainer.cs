@@ -2,8 +2,9 @@
 using System.Reflection;
 using System.Collections.Generic;
 
-namespace ContainerNamespace {
+namespace SimpleContainer {
 public class NotRegisteredDependency : Exception { }
+public class NoAvailableConstructors : Exception { }
 
 public class Container
 {
@@ -28,25 +29,22 @@ public class Container
 		RegisterType(from, to, Singleton);
 	}
 
+	private ConstructorInfo GetConstructor(Type t) {
+		ConstructorInfo[] constructors = t.GetConstructors();
+		foreach(var c in constructors) {
+			if (c.GetParameters().Length == 0) {
+				return c;
+			}
+		}
+		throw new NoAvailableConstructors();
+	}
+
 	private object Create(Type t) {
-			ConstructorInfo? constructor =
-				t.GetConstructor(
-						BindingFlags.Public,
-						System.Type.DefaultBinder,
-						CallingConventions.Any,
-						new Type[0],
-						null);
-			if(constructor == null) {
-				Console.WriteLine("constructor of {} is null", t.Name);
-			}
-			object result = constructor?.Invoke(null);
-			if(result == null) {
-				Console.WriteLine("result of Create is null");
-			}
-			return result;
+		return GetConstructor(t).Invoke(null);
 	}
 
 	private void RegisterType(Type from, Type to, bool Singleton) {
+		dependencyMap.Remove(from);
 		dependencyMap.Add(from, to);
 		if (Singleton) {
 			singletonSet.Add(from);
@@ -58,13 +56,22 @@ public class Container
 
 	public T Resolve<T>() {
 		Type t = typeof(T);
-		if(singletonSet.Contains(t)) {
-			if (!instanceMapper.ContainsKey(t)) {
-				instanceMapper.Add(t, Create(dependencyMap.GetValueOrDefault(t)));
+		Type outT;
+		if (dependencyMap.TryGetValue(t, out outT)) {
+			if(singletonSet.Contains(t)) {
+				object result;
+				if (!instanceMapper.TryGetValue(t, out result)) {
+					result = Create(outT);
+					instanceMapper.Add(t, result);
+				}
+				return (T)result;
+			} else {
+				return (T)Create(outT);
 			}
-			return (T)instanceMapper.GetValueOrDefault(t, null);
+		} else if (!t.IsAbstract && !t.IsInterface) {
+			return (T)Create(t);
 		} else {
-			return (T)Create(dependencyMap.GetValueOrDefault(t));
+			throw new NotRegisteredDependency();
 		}
 	}
 }
