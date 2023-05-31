@@ -74,6 +74,13 @@ public class Container
 			throw new NotRegisteredDependency();
 		}
 	}
+
+	public void RegisterInstance<T>(T Instance) {
+		Type t = typeof(T);
+		RegisterType(t, t, true);
+		instanceMapper.Remove(t);
+		instanceMapper.Add(t, Instance);
+	}
 }
 
 public class Program {

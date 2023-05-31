@@ -7,10 +7,18 @@ public class Tests
     class OtherFoo : IFoo {};
     class BadFoo {
         public BadFoo(int i) {}        
-}
+    }
 
     [Fact]
     public void TestBasic()
+    {
+		Container c = new Container();
+		Foo f1 = c.Resolve<Foo>();
+        Assert.True(f1 != null, "f1 should not be null");
+    }
+
+    [Fact]
+    public void TestBasicWithRegister()
     {
 		Container c = new Container();
         c.RegisterType<Foo>( false );
@@ -22,7 +30,6 @@ public class Tests
     public void TestIncorrectConstructor()
     {
 		Container c = new Container();
-		c.RegisterType<BadFoo>( false );
         Assert.Throws<NoAvailableConstructors>(() => c.Resolve<BadFoo>());
     }
 
@@ -56,7 +63,7 @@ public class Tests
     }
 
     [Fact]
-    public void Test5()     //zmiana wyboru implementacji poprawna
+    public void TestMultipleChoice()     //zmiana wyboru implementacji poprawna
     {
 		Container c = new Container();
 		c.RegisterType<IFoo, Foo>( false );
