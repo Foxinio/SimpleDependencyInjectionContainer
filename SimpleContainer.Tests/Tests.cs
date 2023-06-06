@@ -126,6 +126,7 @@ public class Tests
     [Fact]
     public void DependencyInjectionBasic()
     {
+        Console.WriteLine("[TEST] DependencyInjectionBasicTest");
 		Container c = new Container();
         A a = c.Resolve<A>();
         Assert.True(a.b != null, "it should properly create it");
@@ -138,9 +139,10 @@ public class Tests
 		Assert.Throws<NoAvailableConstructors>( () => c.Resolve<C>());
 	}
 
-[Fact]
-public void DependencyInjectionWithInstance()
+    [Fact]
+    public void DependencyInjectionWithInstance()
     {
+        Console.WriteLine("[TEST] DependencyInjectionWithInstanceTest");
 		Container c = new Container();
         c.RegisterInstance<string>("aaaaaaaaaaaa");
         C a = c.Resolve<C>();

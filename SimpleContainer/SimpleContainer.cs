@@ -32,6 +32,51 @@ public class Container
 		RegisterType(from, to, Singleton);
 	}
 
+	public void RegisterInstance<From>(object Instance) {
+		Type from = typeof(From);
+		Type to = Instance.GetType();
+		RegisterType(from, to, true);
+		instanceMapper.Remove(from);
+		instanceMapper.Add(from, Instance);
+	}
+
+	private void RegisterType(Type from, Type to, bool Singleton) {
+		dependencyMap.Remove(from);
+		dependencyMap.Add(from, to);
+		RegisterConstructor(to);
+		if (Singleton) {
+			singletonSet.Add(from);
+		} else {
+			singletonSet.Remove(from);
+			instanceMapper.Remove(from);
+		}
+	}
+
+	private void RegisterConstructor(Type t) {
+		if(constructorMap.ContainsKey(t)) {
+			Console.WriteLine("	Consturctor for type " + t.ToString() + " already registered");
+			return;
+		}
+		ConstructorInfo c = GetConstructor(t);
+		constructorMap.Add(t, c);
+		foreach(var parameter in c.GetParameters()) {
+			RegisterConstructor(parameter.GetType());
+		}
+	}
+
+	private ConstructorInfo GetConstructor(Type t) {
+		ConstructorInfo[] constructors = t.GetConstructors();
+		Array.Sort(constructors, new ConstructorComparer());
+		Console.WriteLine("	Found " + constructors.Length + " constructors for type " + t.ToString());
+		Console.WriteLine("	type is Abstract: " + t.IsAbstract + " and is Interface: " + t.IsInterface + "\n");
+		foreach(var c in constructors) {
+			if (ConstructorMatches(c.GetParameters())) {
+				return c;
+			}
+		}
+		throw new NoAvailableConstructors();
+	}
+
 	private class ConstructorComparer : IComparer<ConstructorInfo> {
 		int IComparer<ConstructorInfo>.Compare(ConstructorInfo? x, ConstructorInfo? y) {
 			if (y == null) {
@@ -55,63 +100,19 @@ public class Container
 		return true;
 	}
 
-	private ConstructorInfo GetConstructor(Type t) {
-		ConstructorInfo[] constructors = t.GetConstructors();
-		Array.Sort(constructors, new ConstructorComparer());
-		foreach(var c in constructors) {
-			if (ConstructorMatches(c.GetParameters())) {
-				return c;
-			}
-		}
-		throw new NoAvailableConstructors();
-	}
 
-	private object Create(Type t, HashSet<Type> beingConstructed) {
-		ConstructorInfo? c = constructorMap.GetValueOrDefault(t);
-		if (c == null) {
-			throw new NoAvailableConstructors();
-		}
-		object[] parameters = ResolveParameters(c.GetParameters(), beingConstructed);
-		return c.Invoke(parameters);
-	}
 
-	private ConstructorInfo GetSimpleConstructor(Type t) {
-		ConstructorInfo[] constructors = t.GetConstructors();
-		foreach(var c in constructors) {
-			if (c.GetParameters().Length == 0) {
-				return c;
-			}
-		}
-		throw new NoAvailableConstructors();
-	}
 
-	private object[] ResolveParameters(ParameterInfo[] parameters, HashSet<Type> beingConstructed) {
-		object[] result = new object[parameters.Length];
-		for(int i = 0; i < parameters.Length; i++) {
-			result[i] = Resolve(parameters[i].GetType(), beingConstructed);
-		}
-		return result;
-	}
 
-	private void RegisterType(Type from, Type to, bool Singleton) {
-		dependencyMap.Remove(from);
-		dependencyMap.Add(from, to);
-		constructorMap.Remove(to);
-		constructorMap.Add(to, GetConstructor(to));
-		if (Singleton) {
-			singletonSet.Add(from);
-		} else {
-			singletonSet.Remove(from);
-			instanceMapper.Remove(from);
-		}
-	}
 
 	public T Resolve<T>() {
 		Type t = typeof(T);
+		Console.WriteLine("\tStarting resolving request for type " + t);
 		return (T)Resolve(t, new HashSet<Type>());
 	}
 
 	private object Resolve(Type t, HashSet<Type> beingConstructed) {
+		// RAII check if 
 		if (beingConstructed.Contains(t)) {
 			throw new DependencyCycleDetected();
 		}
@@ -135,19 +136,42 @@ public class Container
 				return Create(outT, beingConstructed);
 			}
 		} else if (!t.IsAbstract && !t.IsInterface) {
-			return GetSimpleConstructor(t).Invoke(null);
+			return Create(t, beingConstructed);
 		} else {
 			throw new NotRegisteredDependency();
 		}
 	}
 
-	public void RegisterInstance<From>(object Instance) {
-		Type from = typeof(From);
-		Type to = Instance.GetType();
-		RegisterType(from, to, true);
-		instanceMapper.Remove(from);
-		instanceMapper.Add(from, Instance);
+	private object Create(Type t, HashSet<Type> beingConstructed) {
+		ConstructorInfo? c = constructorMap.GetValueOrDefault(t);
+		if (c == null) {
+			return GetSimpleConstructor(t).Invoke(null);
+		}
+		object[] parameters = ResolveParameters(c.GetParameters(), beingConstructed);
+		return c.Invoke(parameters);
 	}
+
+	private ConstructorInfo GetSimpleConstructor(Type t) {
+		ConstructorInfo[] constructors = t.GetConstructors();
+		Console.WriteLine("\tTrying SimpleConstructor");
+		Console.WriteLine("	Found " + constructors.Length + " constructors for type " + t.ToString());
+		Console.WriteLine("	type is Abstract: " + t.IsAbstract + " and is Interface: " + t.IsInterface);
+		foreach(var c in constructors) {
+			if (c.GetParameters().Length == 0) {
+				return c;
+			}
+		}
+		throw new NoAvailableConstructors();
+	}
+
+	private object[] ResolveParameters(ParameterInfo[] parameters, HashSet<Type> beingConstructed) {
+		object[] result = new object[parameters.Length];
+		for(int i = 0; i < parameters.Length; i++) {
+			result[i] = Resolve(parameters[i].GetType(), beingConstructed);
+		}
+		return result;
+	}
+
 }
 
 public class Program {
@@ -160,7 +184,7 @@ public class Program {
 		c.RegisterType<Foo>( true );
 		Foo f1 = c.Resolve<Foo>();
 		Foo f2 = c.Resolve<Foo>();
-        Console.WriteLine("{}", f1.Equals(f2));
+        Console.WriteLine("	{}", f1.Equals(f2));
 	}
 }
 
