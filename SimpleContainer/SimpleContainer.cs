@@ -1,4 +1,5 @@
 ﻿using System;
+using System.IO;
 using System.Reflection;
 using System.Collections.Generic;
 
@@ -9,6 +10,8 @@ public class DependencyCycleDetected: Exception { }
 
 public class Container
 {
+	public TextWriter Log = TextWriter.Null;
+
 	private Dictionary<Type, Type> dependencyMap;
 	private HashSet<Type> singletonSet;
 	private Dictionary<Type, object> instanceMapper;
@@ -35,17 +38,20 @@ public class Container
 	public void RegisterInstance<From>(object Instance) {
 		Type from = typeof(From);
 		Type to = Instance.GetType();
-		RegisterType(from, to, true);
+		dependencyMap.Remove(from);
+		dependencyMap.Add(from, to);
 		instanceMapper.Remove(from);
+		singletonSet.Add(from);
 		instanceMapper.Add(from, Instance);
 	}
 
 	private void RegisterType(Type from, Type to, bool Singleton) {
 		dependencyMap.Remove(from);
-		dependencyMap.Add(from, to);
 		RegisterConstructor(to);
+		dependencyMap.Add(from, to);
 		if (Singleton) {
 			singletonSet.Add(from);
+			instanceMapper.Add(from, Create(to, new HashSet<Type>()));
 		} else {
 			singletonSet.Remove(from);
 			instanceMapper.Remove(from);
@@ -53,22 +59,25 @@ public class Container
 	}
 
 	private void RegisterConstructor(Type t) {
-		if(constructorMap.ContainsKey(t)) {
-			Console.WriteLine("	Consturctor for type " + t.ToString() + " already registered");
+		if(dependencyMap.ContainsKey(t)) {
+			Log.WriteLine("	Dependency for type " +
+					t.ToString() + " already registered, Constructor not needed");
 			return;
 		}
+		Log.WriteLine("\tRegistering Constructor for type " + t);
 		ConstructorInfo c = GetConstructor(t);
 		constructorMap.Add(t, c);
 		foreach(var parameter in c.GetParameters()) {
-			RegisterConstructor(parameter.GetType());
+			RegisterConstructor(parameter.ParameterType);
 		}
 	}
 
 	private ConstructorInfo GetConstructor(Type t) {
 		ConstructorInfo[] constructors = t.GetConstructors();
 		Array.Sort(constructors, new ConstructorComparer());
-		Console.WriteLine("	Found " + constructors.Length + " constructors for type " + t.ToString());
-		Console.WriteLine("	type is Abstract: " + t.IsAbstract + " and is Interface: " + t.IsInterface + "\n");
+		Log.WriteLine("\tTrying GetConstructor");
+		Log.WriteLine("	Found " + constructors.Length + " constructors for type " + t.ToString());
+		Log.WriteLine("	type is Abstract: " + t.IsAbstract + " and is Interface: " + t.IsInterface + "\n");
 		foreach(var c in constructors) {
 			if (ConstructorMatches(c.GetParameters())) {
 				return c;
@@ -91,9 +100,10 @@ public class Container
 
 	private bool ConstructorMatches(ParameterInfo[] parameters) {
 		foreach(ParameterInfo p in parameters) {
-			Type pType = p.GetType();
-			if (!dependencyMap.ContainsKey(pType) &&
-					(pType.IsAbstract || pType.IsInterface)){
+			if (!dependencyMap.ContainsKey(p.ParameterType) &&
+					!singletonSet.Contains(p.ParameterType) &&
+					(p.ParameterType.IsAbstract || p.ParameterType.IsInterface)){
+				Log.WriteLine("Constructor Matcher Failed for type " + p.ParameterType);
 				return false;
 			}
 		}
@@ -102,39 +112,46 @@ public class Container
 
 
 
-
-
+	private class ResolveAntiCycle {
+		Type t;
+		HashSet<Type> set;
+		public ResolveAntiCycle(Type t, HashSet<Type> set) {
+			this.t = t;
+			this.set = set;
+			if(set.Contains(t)) {
+				throw new DependencyCycleDetected();
+			}
+			set.Add(t);
+		}
+		~ResolveAntiCycle() {
+			set.Remove(t);
+		}
+	}
 
 	public T Resolve<T>() {
 		Type t = typeof(T);
-		Console.WriteLine("\tStarting resolving request for type " + t);
+		if(!dependencyMap.ContainsKey(t)) {
+			Log.WriteLine("\tRequested Type is not registered: " + t);
+			if(t.IsAbstract || t.IsInterface) {
+				throw new NotRegisteredDependency();
+			}
+			RegisterType(t, t, false);
+		}
+		Log.WriteLine("\tStarting resolving registered request for type " + t);
 		return (T)Resolve(t, new HashSet<Type>());
 	}
 
 	private object Resolve(Type t, HashSet<Type> beingConstructed) {
-		// RAII check if 
-		if (beingConstructed.Contains(t)) {
-			throw new DependencyCycleDetected();
-		}
-		beingConstructed.Add(t);
-		object result = ResolveInternal(t, beingConstructed);
-		beingConstructed.Remove(t);
-		return result;
-	}
+		ResolveAntiCycle _ = new ResolveAntiCycle(t, beingConstructed);
 
-	private object ResolveInternal(Type t, HashSet<Type> beingConstructed) {
+		if(singletonSet.Contains(t)) {
+			object result = instanceMapper.GetValueOrDefault(t);
+			return result;
+		}
+
 		Type outT;
 		if (dependencyMap.TryGetValue(t, out outT)) {
-			if(singletonSet.Contains(t)) {
-				object result;
-				if (!instanceMapper.TryGetValue(t, out result)) {
-					result = Create(outT, beingConstructed);
-					instanceMapper.Add(t, result);
-				}
-				return result;
-			} else {
-				return Create(outT, beingConstructed);
-			}
+			return Create(outT, beingConstructed);
 		} else if (!t.IsAbstract && !t.IsInterface) {
 			return Create(t, beingConstructed);
 		} else {
@@ -153,9 +170,9 @@ public class Container
 
 	private ConstructorInfo GetSimpleConstructor(Type t) {
 		ConstructorInfo[] constructors = t.GetConstructors();
-		Console.WriteLine("\tTrying SimpleConstructor");
-		Console.WriteLine("	Found " + constructors.Length + " constructors for type " + t.ToString());
-		Console.WriteLine("	type is Abstract: " + t.IsAbstract + " and is Interface: " + t.IsInterface);
+		Log.WriteLine("\tTrying SimpleConstructor");
+		Log.WriteLine("	Found " + constructors.Length + " constructors for type " + t.ToString());
+		Log.WriteLine("	type is Abstract: " + t.IsAbstract + " and is Interface: " + t.IsInterface);
 		foreach(var c in constructors) {
 			if (c.GetParameters().Length == 0) {
 				return c;
@@ -167,7 +184,7 @@ public class Container
 	private object[] ResolveParameters(ParameterInfo[] parameters, HashSet<Type> beingConstructed) {
 		object[] result = new object[parameters.Length];
 		for(int i = 0; i < parameters.Length; i++) {
-			result[i] = Resolve(parameters[i].GetType(), beingConstructed);
+			result[i] = Resolve(parameters[i].ParameterType, beingConstructed);
 		}
 		return result;
 	}

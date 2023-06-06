@@ -123,14 +123,13 @@ public class Tests
             this.b = b;}
     };
 
-    [Fact]
-    public void DependencyInjectionBasic()
-    {
-        Console.WriteLine("[TEST] DependencyInjectionBasicTest");
+	[Fact]
+	public void DependencyInjectionBasic()
+	{
 		Container c = new Container();
-        A a = c.Resolve<A>();
-        Assert.True(a.b != null, "it should properly create it");
-    }
+		A a = c.Resolve<A>();
+		Assert.True(a.b != null, "it should properly create it");
+	}
     
     [Fact]
     public void DependencyInjectionNoInstance()
@@ -139,15 +138,20 @@ public class Tests
 		Assert.Throws<NoAvailableConstructors>( () => c.Resolve<C>());
 	}
 
-    [Fact]
-    public void DependencyInjectionWithInstance()
-    {
-        Console.WriteLine("[TEST] DependencyInjectionWithInstanceTest");
-		Container c = new Container();
-        c.RegisterInstance<string>("aaaaaaaaaaaa");
-        C a = c.Resolve<C>();
-        Assert.True(a.b != null, "it should properly create the string");
-    }
+	[Fact]
+	public void DependencyInjectionWithInstance()
+	{
+		try {
+			Console.WriteLine("[TEST] DependencyInjectionWithInstanceTest");
+			Container c = new Container();
+			c.RegisterInstance<string>("aaaaaaaaaaaa");
+			C a = c.Resolve<C>();
+			Assert.True(a.b != null, "it should properly create the string");
+		} catch (Exception e) {
+			Console.WriteLine("[TEST] DependencyInjectionWithInstanceTest Thrown an Exception");
+			throw e;
+		}
+	}
 
     
 }
